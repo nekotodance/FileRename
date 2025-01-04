@@ -7,9 +7,10 @@ from PyQt5.QtWidgets import (
     QMenu, QAction
 )
 from PyQt5.QtCore import Qt, QMimeData
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QColor, QBrush
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QColor, QBrush, QIcon
 from PyQt5.QtMultimedia import QSound
 import subfunc
+from natsort import natsorted
 
 # アプリ名称
 WINDOW_TITLE = "File Rename Tool"
@@ -33,7 +34,7 @@ class FileRename(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(WINDOW_TITLE)
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 848, 480)
 
         self.history_before = []
         self.history_after = []
@@ -61,6 +62,8 @@ class FileRename(QMainWindow):
 
     #ドラッグ＆ドロップ時処理
     def dropEvent(self, event: QDropEvent):
+        self.clear_list()
+
         urls = event.mimeData().urls()
         if not urls:
             #QMessageBox.warning(self, "Warning", "No valid files or folders dropped.")
@@ -68,27 +71,41 @@ class FileRename(QMainWindow):
             return
 
         paths = [url.toLocalFile() for url in urls]
-
         if all(os.path.isfile(path) for path in paths):
             # All are files
             parent_dirs = {os.path.dirname(path) for path in paths}
             if len(parent_dirs) > 1:
                 #QMessageBox.warning(self, "Warning", "All files must be in the same folder.")
-                self.show_err_message(f"全てのファイルは同じフォルダである必要があります")
+                self.show_err_message(f"全てのファイルは同じフォルダ内にある必要があります")
                 return
 
             self.folder_path = parent_dirs.pop()
             self.files = paths
+            self.show_message(f"{len(self.files)}ファイルがドロップされました")
         elif len(paths) == 1 and os.path.isdir(paths[0]):
             # Single folder
             self.folder_path = paths[0]
             self.files.clear()
             self.add_files_from_directory(self.folder_path)
+            self.show_message(f"{len(self.files)}フォルダがドロップされました")
+        elif all(os.path.isdir(path) for path in paths):
+            # All are files
+            parent_dirs = {os.path.dirname(path) for path in paths}
+            if len(parent_dirs) > 1:
+                #QMessageBox.warning(self, "Warning", "All files must be in the same folder.")
+                self.show_err_message(f"全てのフォルダは同じ親フォルダ内にある必要があります")
+                return
+
+            self.folder_path = parent_dirs.pop()
+            self.files = paths
+            self.show_message(f"{len(self.files)}フォルダがドロップされました")
         else:
             #QMessageBox.warning(self, "Warning", "Invalid mix of files and folders.")
             self.show_err_message(f"ファイルとフォルダが同時にドロップされました")
             return
 
+        # Windowsのエクスプローラーのようなナチュラルソート
+        self.files = natsorted(self.files)
         #self.lanbel_folder.setText(self.folder_path)
         self.set_folder_label(self.folder_path)
         #self.status_bar.showMessage(f"Selected folder: {self.folder_path}")
@@ -133,6 +150,7 @@ class FileRename(QMainWindow):
         top_layout_input.addWidget(label)
         self.replace_before_combo = QComboBox()
         self.replace_before_combo.setEditable(True)
+        self.replace_before_combo.setCompleter(None) #サジェスト機能の無効化
         self.replace_before_combo.setMinimumWidth(200)
         #self.replace_before_combo.setMaximumWidth(400)
         top_layout_input.addWidget(self.replace_before_combo)
@@ -141,6 +159,7 @@ class FileRename(QMainWindow):
         top_layout_input.addWidget(label)
         self.replace_after_combo = QComboBox()
         self.replace_after_combo.setEditable(True)
+        self.replace_after_combo.setCompleter(None) #サジェスト機能の無効化
         self.replace_after_combo.setMinimumWidth(200)
         #self.replace_after_combo.setMaximumWidth(400)
         top_layout_input.addWidget(self.replace_after_combo)
@@ -178,7 +197,35 @@ class FileRename(QMainWindow):
         self.set_folder_label()
         layout_buttons.addWidget(self.lanbel_folder)
         layout_buttons.addSpacerItem(QSpacerItem(0, 40, QSizePolicy.Expanding, QSizePolicy.Minimum))
-        self.test_button = QPushButton("テスト")
+        self.test_seq_button = QPushButton("連番テスト")
+        self.test_seq_button.setFixedHeight(40)
+        self.test_seq_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #AACCFF;  /* 背景色 */
+                color: black;  /* 文字色 */
+            }
+            """
+        )
+        self.test_seq_button.setToolTip("このボタンではファイルを001からの連番への変換テストを行います")
+        self.test_seq_button.clicked.connect(self.test_seq)
+        layout_buttons.addWidget(self.test_seq_button)
+        self.seq_button = QPushButton("連番変換")
+        self.seq_button.setFixedHeight(40)
+        self.seq_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #FFAACC;  /* 背景色 */
+                color: black;  /* 文字色 */
+            }
+            """
+        )
+        self.seq_button.setToolTip("このボタンではファイルを001からの連番への変換を行います")
+        self.seq_button.clicked.connect(self.seq_files)
+        layout_buttons.addWidget(self.seq_button)
+        layout_buttons.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Fixed, QSizePolicy.Minimum))
+
+        self.test_button = QPushButton("置換テスト")
         self.test_button.setFixedHeight(40)
         self.test_button.setStyleSheet(
             """
@@ -204,7 +251,7 @@ class FileRename(QMainWindow):
         layout_buttons.addWidget(self.rename_button)
         self.clear_button = QPushButton("クリア")
         self.clear_button.setFixedHeight(40)
-        self.clear_button.clicked.connect(self.clear_list)
+        self.clear_button.clicked.connect(self.clear_func)
         layout_buttons.addWidget(self.clear_button)
         layout.addLayout(layout_buttons)
 
@@ -214,6 +261,7 @@ class FileRename(QMainWindow):
 
         central_widget.setLayout(layout)
 
+        self.setWindowIcon(QIcon("res/FileRename.ico"))
         self.setAcceptDrops(True)
         self.files = []
 
@@ -228,7 +276,7 @@ class FileRename(QMainWindow):
         geow = subfunc.read_value_from_config(SETTINGS_FILE, GEOMETRY_W)
         geoh = subfunc.read_value_from_config(SETTINGS_FILE, GEOMETRY_H)
         if any(val is None for val in [geox, geoy, geow, geoh]):
-            self.setGeometry(100, 100, 848, 640)    #位置とサイズ
+            self.setGeometry(100, 100, 848, 480)    #位置とサイズ
         else:
             self.setGeometry(geox, geoy, geow, geoh)    #位置とサイズ
 
@@ -270,14 +318,85 @@ class FileRename(QMainWindow):
     def add_files_from_directory(self, directory):
         for file in os.listdir(directory):
             file_path = os.path.join(directory, file)
-            if os.path.isfile(file_path):
-                self.files.append(file_path)
-
+            self.files.append(file_path)
     # テーブルの更新
     def update_file_table(self):
         self.file_table.setRowCount(len(self.files))
         for row, file in enumerate(self.files):
             self.file_table.setItem(row, 0, QTableWidgetItem(os.path.basename(file)))
+
+    # 連番テストボタン処理
+    def test_seq(self):
+        self.matchfilenum = -1
+
+        if len(self.files) == 0:
+            self.show_err_message(f"ファイルが登録されていません")
+            return
+
+        # ファイル名の桁数は最小で3桁、ファイル数がそれ以上ならそれに合わせて0パディング
+        padding = len(str(self.matchfilenum))
+        if padding < 3:
+            padding = 3
+        self.matchfilenum = 0
+        for row, file in enumerate(self.files):
+            basename = os.path.basename(file)
+            self.file_table.setItem(row, 0, QTableWidgetItem(basename))
+            fn, ext = os.path.splitext(basename)
+            if fn != "" and ext != "":
+                self.matchfilenum += 1
+                new_name = str(self.matchfilenum).zfill(padding) + ext
+                new_item = QTableWidgetItem(new_name)
+                new_item.setForeground(QBrush(QColor("red")))
+                self.file_table.setItem(row, 1, new_item)
+            else:
+                new_name = basename
+                new_item = QTableWidgetItem(new_name)
+                self.file_table.setItem(row, 1, new_item)
+
+        if self.matchfilenum == 0:
+            self.show_err_message(f"連番の対象ファイルが0件です")
+            return
+
+        self.show_message(f"テスト結果 : {self.file_table.rowCount()}ファイルのうち、{self.matchfilenum}ファイルが対象です")
+        return
+
+    # 連番変換ボタン処理
+    def seq_files(self):
+        self.test_seq()
+        if self.matchfilenum <= 0:
+            # すでにテストでエラー状況を表示済み
+            return
+
+        response = QMessageBox.question(self, "確認", "本当に連番処理を実施してよいですか？", QMessageBox.Yes | QMessageBox.No)
+        if response != QMessageBox.Yes:
+            return
+        # ファイル名の桁数は最小で3桁、ファイル数がそれ以上ならそれに合わせて0パディング
+        padding = len(str(self.matchfilenum))
+        if padding < 3:
+            padding = 3
+        new_names = {}
+        self.matchfilenum = 0
+        for row, file in enumerate(self.files):
+            basename = os.path.basename(file)
+            self.file_table.setItem(row, 0, QTableWidgetItem(basename))
+            fn, ext = os.path.splitext(basename)
+            if fn != "" and ext != "":
+                self.matchfilenum += 1
+                new_name = str(self.matchfilenum).zfill(padding) + ext
+            else:
+                new_name = basename
+
+            new_path = os.path.join(os.path.dirname(file), new_name)
+            new_names[file] = new_path
+
+        for old_path, new_path in new_names.items():
+            os.rename(old_path, new_path)
+
+        self.files = list(new_names.values())
+        self.update_file_table()
+        #QMessageBox.information(self, "Success", "Files renamed successfully.")
+        self.show_message(f"連番結果 : {self.file_table.rowCount()}ファイルのうち、{self.matchfilenum}ファイルを連番にしました")
+        self.play_wave(self.soundok)
 
     # テストボタン処理
     def test_rename(self):
@@ -343,21 +462,23 @@ class FileRename(QMainWindow):
 
             self.file_table.setItem(row, 1, new_item)
 
+        if self.matchfilenum == 0:
+            self.show_err_message(f"検索文字列に一致するファイルがありません")
+            return
+
         self.show_message(f"テスト結果 : {self.file_table.rowCount()}ファイルのうち、{self.matchfilenum}ファイルが対象です")
+        return
 
     # 変換ボタン処理
     def rename_files(self):
         before_pattern = self.replace_before_combo.currentText()
         after_text = self.replace_after_combo.currentText()
         self.test_rename()
-        if self.matchfilenum == -1:
+        if self.matchfilenum <= 0:
             # すでにテストでエラー状況を表示済み
             return
-        if self.matchfilenum == 0:
-            self.show_err_message(f"検索文字列に一致するファイルがありません")
-            return
 
-        response = QMessageBox.question(self, "確認", "本当に置換処理を実施して良いですか？", QMessageBox.Yes | QMessageBox.No)
+        response = QMessageBox.question(self, "確認", "本当に置換処理を実施してよいですか？", QMessageBox.Yes | QMessageBox.No)
         if response != QMessageBox.Yes:
             return
 
@@ -399,7 +520,8 @@ class FileRename(QMainWindow):
             return
 
         for old_path, new_path in new_names.items():
-            os.rename(old_path, new_path)
+            if not os.path.exists(new_path):
+                os.rename(old_path, new_path)
 
         self.files = list(new_names.values())
         self.update_file_table()
@@ -408,14 +530,20 @@ class FileRename(QMainWindow):
         self.play_wave(self.soundok)
 
     # クリアボタン処理
+    def clear_func(self):
+        self.clear_list()
+        self.clear_word()
+        self.show_message(f"クリアしました")
+
     def clear_list(self):
         #self.file_table.clear()             # ヘッダーも含めてクリア
         #self.file_table.clearContents()     # アイテムの中身をクリア（リストの件数やヘッダーはそのまま）
         self.file_table.setRowCount(0)      # リストの0件に（ヘッダーはそのまま）
         self.set_folder_label()
+
+    def clear_word(self):
         self.replace_before_combo.setCurrentText("")
         self.replace_after_combo.setCurrentText("")
-        self.show_message(f"クリアしました")
 
     # フォルダー名設定
     def set_folder_label(self, str=None):
