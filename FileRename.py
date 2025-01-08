@@ -342,7 +342,7 @@ class FileRename(QMainWindow):
             basename = os.path.basename(file)
             self.file_table.setItem(row, 0, QTableWidgetItem(basename))
             fn, ext = os.path.splitext(basename)
-            if fn != "" and ext != "":
+            if os.path.isdir(file) or (fn != "" and ext != ""):
                 self.matchfilenum += 1
                 new_name = str(self.matchfilenum).zfill(padding) + ext
                 new_item = QTableWidgetItem(new_name)
@@ -380,7 +380,7 @@ class FileRename(QMainWindow):
             basename = os.path.basename(file)
             self.file_table.setItem(row, 0, QTableWidgetItem(basename))
             fn, ext = os.path.splitext(basename)
-            if fn != "" and ext != "":
+            if os.path.isdir(file) or (fn != "" and ext != ""):
                 self.matchfilenum += 1
                 new_name = str(self.matchfilenum).zfill(padding) + ext
             else:
